@@ -3,39 +3,39 @@ package controller
 import (
 	"fmt"
 	"net/http"
-	"service-employee/config"
+	"service-employee/database"
 	"service-employee/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 var user_uri string = "http://localhost:3001/user"
 
 type WebResponse struct {
-	Code int
+	Code   int
 	Status string
-	Data interface{}
+	Data   interface{}
 }
 
 func CreateEmployee(c *fiber.Ctx) error {
-	db := config.GetMongoDatabase().Collection("employee")
 	var requestBody model.Employee
 
-	c.BodyParser(&requestBody)
+	if err := c.BodyParser(&requestBody); err != nil {
+		return c.Status(http.StatusBadRequest).JSON(fiber.Map{"error": "cannot parse JSON"})
+	}
 
 	requestBody.Id = uuid.New().String()
 
 	access_token := c.Get("access_token")
 	if len(access_token) == 0 {
-		return c.Status(401).SendString("Invalid token: Access token missing")
+		return c.Status(http.StatusUnauthorized).SendString("Invalid token: Access token missing")
 	}
 
-	req, err := http.NewRequest("GET", user_uri + "/auth", nil)
+	req, err := http.NewRequest("GET", user_uri+"/auth", nil)
 	if err != nil {
 		fmt.Println("Error creating request:", err)
-		panic(err)
+		return err
 	}
 
 	// Set headers
@@ -47,32 +47,24 @@ func CreateEmployee(c *fiber.Ctx) error {
 	resp, err := client.Do(req)
 	if err != nil {
 		fmt.Println("Error sending request:", err)
-		panic(err)
+		return err
 	}
 	defer resp.Body.Close()
 
-	// Print the response
-	// fmt.Println("Response Status:", resp.Status)
-	// fmt.Println("Response Headers:", resp.Header)
-
-	if resp.Status != "200 OK" {
-		c.Status(401).SendString("invalid token")
+	if resp.StatusCode != http.StatusOK {
+		return c.Status(http.StatusUnauthorized).SendString("Invalid token")
 	}
 
-	ctx, cancel := config.NewMongoContext()
-	defer cancel()
-
-	_, err = db.InsertOne(ctx, bson.M{
-		"name": requestBody.Name,
-	})
-
+	db := database.GetDB()
+	query := `INSERT INTO employee (id, name) VALUES ($1, $2)`
+	_, err = db.Exec(query, requestBody.Id, requestBody.Name)
 	if err != nil {
-		panic(err)
+		return c.Status(http.StatusInternalServerError).JSON(fiber.Map{"error": "unable to create employee"})
 	}
 
-	return c.JSON(WebResponse{
-		Code: 201,
+	return c.Status(http.StatusCreated).JSON(WebResponse{
+		Code:   201,
 		Status: "OK",
-		Data: requestBody,
+		Data:   requestBody,
 	})
 }

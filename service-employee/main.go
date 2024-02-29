@@ -8,11 +8,10 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-func init() {
-	config.GetMongoDatabase()
-}
-
 func main() {
+	// Initialize configuration
+	config.SetConfig() // Make sure this is called to load your config.yml
+
 	app := fiber.New()
 
 	app.Get("/", func(c *fiber.Ctx) error {
